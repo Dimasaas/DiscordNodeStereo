@@ -1,7 +1,8 @@
-"""Gera o ícone do VoxGuard e as imagens do README (assets/ e docs/).
+"""Gera o ícone do DiscordNodeStereo e as imagens do README (assets/ e docs/).
 
 Só precisa rodar quando mudar a arte:  python tools/make_assets.py   (requer Pillow)
 """
+import math
 import os
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
@@ -28,20 +29,35 @@ def gradient(size, c1, c2):
     return small.resize((w, h), Image.BICUBIC)
 
 
-def bezier(p0, p1, p2, steps=40):
-    return [((1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0],
-             (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1])
-            for t in (i / steps for i in range(steps + 1))]
+def arc_round(d, cx, cy, r, a0, a1, width, fill):
+    """Arco com pontas arredondadas (ângulos no sentido horário a partir das 3h, como no Pillow)."""
+    d.arc([cx - r, cy - r, cx + r, cy + r], a0, a1, fill=fill, width=int(width))
+    mid = r - width / 2   # o Pillow desenha a espessura para dentro
+    for a in (a0, a1):
+        t = math.radians(a)
+        x, y = cx + mid * math.cos(t), cy + mid * math.sin(t)
+        d.ellipse([x - width / 2, y - width / 2, x + width / 2, y + width / 2], fill=fill)
 
 
-def shield(s):
-    """Contorno de um escudo em coordenadas de pixel para uma tela s x s."""
-    def p(x, y):
-        return (x * s, y * s)
-    left = bezier(p(0.5, 0.86), p(0.25, 0.74), p(0.25, 0.50))
-    top = bezier(p(0.25, 0.27), p(0.40, 0.25), p(0.5, 0.17)) + bezier(p(0.5, 0.17), p(0.60, 0.25), p(0.75, 0.27))
-    right = bezier(p(0.75, 0.50), p(0.75, 0.74), p(0.5, 0.86))
-    return left + top + right
+def mic_mask(s):
+    """Microfone de mesa com ondas de som dos dois lados (estéreo), em branco numa máscara s x s."""
+    m = Image.new("L", (s, s), 0)
+    d = ImageDraw.Draw(m)
+    cx = s * 0.5
+    w = s * 0.05
+    # cápsula
+    d.rounded_rectangle([s * 0.395, s * 0.15, s * 0.605, s * 0.54], radius=s * 0.105, fill=255)
+    # suporte em U, haste e base
+    holder_cy, holder_r = s * 0.44, s * 0.19
+    arc_round(d, cx, holder_cy, holder_r, 0, 180, w, 255)
+    d.rectangle([cx - w / 2, holder_cy + holder_r - w, cx + w / 2, s * 0.75], fill=255)
+    d.rounded_rectangle([s * 0.38, s * 0.735, s * 0.62, s * 0.785], radius=w / 2, fill=255)
+    # ondas: esquerda e direita (L/R)
+    wave_cy = s * 0.345
+    for r in (s * 0.295, s * 0.38):
+        arc_round(d, cx, wave_cy, r, 150, 210, s * 0.045, 255)
+        arc_round(d, cx, wave_cy, r, -30, 30, s * 0.045, 255)
+    return m
 
 
 def icon_image(s=1024):
@@ -57,21 +73,18 @@ def icon_image(s=1024):
     gloss = ImageChops.multiply(gloss, mask)
     img = Image.composite(Image.new("RGBA", (s, s), (255, 255, 255, 255)), img, gloss)
 
-    # sombra + escudo branco
-    shadow = Image.new("L", (s, s), 0)
-    ImageDraw.Draw(shadow).polygon([(x, y + s * 0.025) for x, y in shield(s)], fill=90)
+    # sombra + microfone branco
+    mic = mic_mask(s)
+    shadow = ImageChops.offset(mic, 0, int(s * 0.022)).point(lambda v: v * 90 // 255)
     shadow = shadow.filter(ImageFilter.GaussianBlur(s * 0.02))
     img = Image.composite(Image.new("RGBA", (s, s), (40, 20, 90, 255)), img, ImageChops.multiply(shadow, mask))
-    d = ImageDraw.Draw(img)
-    d.polygon(shield(s), fill=(255, 255, 255, 255))
+    img = Image.composite(Image.new("RGBA", (s, s), (255, 255, 255, 255)), img, mic)
 
-    # ondas de voz dentro do escudo
-    heights = [0.10, 0.20, 0.28, 0.20, 0.10]
-    bw = s * 0.05
-    for i, hgt in enumerate(heights):
-        cx = s * (0.5 + (i - 2) * 0.078)
-        cy = s * 0.50
-        d.rounded_rectangle([cx - bw / 2, cy - s * hgt / 2, cx + bw / 2, cy + s * hgt / 2], radius=bw / 2, fill=BAR)
+    # grade da cápsula
+    d = ImageDraw.Draw(img)
+    lw = s * 0.024
+    for y in (0.26, 0.32, 0.38):
+        d.rounded_rectangle([s * 0.45, s * y - lw / 2, s * 0.55, s * y + lw / 2], radius=lw / 2, fill=BAR)
     return img
 
 
@@ -90,15 +103,33 @@ def banner(logo):
 
     img.alpha_composite(logo.resize((220, 220), Image.LANCZOS), (110, 90))
     d = ImageDraw.Draw(img)
-    d.text((372, 92), "VoxGuard", font=font("segoeuib.ttf", 104), fill=(255, 255, 255))
-    d.text((378, 222), "Atualizador de módulos para Discord", font=font("segoeui.ttf", 38), fill=(200, 205, 230))
+
+    # título em duas cores: "DiscordNode" branco + "Stereo" em degradê, ajustado à largura
+    size = 104
+    while True:
+        f_title = font("segoeuib.ttf", size)
+        first = d.textlength("DiscordNode", font=f_title)
+        if first + d.textlength("Stereo", font=f_title) <= w - 372 - 60:
+            break
+        size -= 2
+    top = 150 - size // 2 - 10
+    d.text((372, top), "DiscordNode", font=f_title, fill=(255, 255, 255))
+    text_mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(text_mask).text((372 + first, top), "Stereo", font=f_title, fill=255)
+    # degradê só na área da palavra, para ir de lilás a ciano dentro do "Stereo"
+    x0, y0, x1, y1 = text_mask.getbbox()
+    word = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    word.paste(gradient((x1 - x0, y1 - y0), (196, 140, 255), (34, 211, 238)).convert("RGBA"), (x0, y0))
+    img = Image.composite(word, img, text_mask)
+    d = ImageDraw.Draw(img)
+    d.text((378, 222), "Mic estéreo a 512 kbps no Discord, sempre.", font=font("segoeui.ttf", 38), fill=(200, 205, 230))
 
     # chips translúcidos: desenha numa camada à parte e compõe
     chips = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     cd = ImageDraw.Draw(chips)
     f = font("seguisb.ttf", 24)
     x = 378
-    for chip in ("Portátil", "Leve", "Automático", "Sem instalar nada"):
+    for chip in ("512 kbps", "Estéreo", "Portátil", "Automático"):
         tw = cd.textlength(chip, font=f)
         cd.rounded_rectangle([x, 290, x + tw + 36, 336], radius=23, fill=(255, 255, 255, 28),
                              outline=(255, 255, 255, 80), width=2)

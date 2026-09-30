@@ -1,4 +1,4 @@
-// Núcleo do VoxGuard: acha a versão mais nova do Discord e troca o discord_voice.node.
+// Núcleo do DiscordNodeStereo: acha a versão mais nova do Discord e troca o discord_voice.node.
 // Sem dependência de interface, para poder ser testado em tests/CoreTests.cs.
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     public static class VersionUtil
     {

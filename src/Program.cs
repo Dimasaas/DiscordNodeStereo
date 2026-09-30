@@ -5,19 +5,19 @@ using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("VoxGuard")]
+[assembly: AssemblyTitle("DiscordNodeStereo")]
 [assembly: AssemblyDescription("Atualizador de módulos para Discord")]
-[assembly: AssemblyProduct("VoxGuard")]
-[assembly: AssemblyCopyright("VoxGuard")]
+[assembly: AssemblyProduct("DiscordNodeStereo")]
+[assembly: AssemblyCopyright("DiscordNodeStereo")]
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     static class Program
     {
-        const string MutexName = @"Local\VoxGuard";
-        const string ShowEventName = @"Local\VoxGuard.Show";
+        const string MutexName = @"Local\DiscordNodeStereo";
+        const string ShowEventName = @"Local\DiscordNodeStereo.Show";
 
         [STAThread]
         static void Main(string[] args)

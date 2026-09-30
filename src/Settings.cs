@@ -1,4 +1,4 @@
-// Configurações (VoxGuard.ini), log (VoxGuard.log) e "Iniciar com o Windows".
+// Configurações (DiscordNodeStereo.ini), log (DiscordNodeStereo.log) e "Iniciar com o Windows".
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Text;
 using Microsoft.Win32;
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     public static class AppPaths
     {
@@ -18,21 +18,21 @@ namespace VoxGuard
             get { return Assembly.GetExecutingAssembly().Location; }
         }
 
-        // Portátil: guarda tudo ao lado do .exe. Se a pasta não deixar gravar, usa %APPDATA%\VoxGuard.
-        // VOXGUARD_DATA_DIR serve para testes.
+        // Portátil: guarda tudo ao lado do .exe. Se a pasta não deixar gravar, usa %APPDATA%\DiscordNodeStereo.
+        // DISCORDNODESTEREO_DATA_DIR serve para testes.
         public static string DataDir
         {
             get
             {
                 if (dataDir != null)
                     return dataDir;
-                string env = Environment.GetEnvironmentVariable("VOXGUARD_DATA_DIR");
+                string env = Environment.GetEnvironmentVariable("DISCORDNODESTEREO_DATA_DIR");
                 if (!string.IsNullOrEmpty(env))
                     dataDir = env;
                 else if (CanWrite(Path.GetDirectoryName(ExePath)))
                     dataDir = Path.GetDirectoryName(ExePath);
                 else
-                    dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VoxGuard");
+                    dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DiscordNodeStereo");
                 Directory.CreateDirectory(dataDir);
                 return dataDir;
             }
@@ -42,7 +42,7 @@ namespace VoxGuard
         {
             try
             {
-                string probe = Path.Combine(dir, ".voxguard-write-test");
+                string probe = Path.Combine(dir, ".discordnodestereo-write-test");
                 File.WriteAllText(probe, "");
                 File.Delete(probe);
                 return true;
@@ -65,7 +65,7 @@ namespace VoxGuard
 
         static string FilePath
         {
-            get { return Path.Combine(AppPaths.DataDir, "VoxGuard.ini"); }
+            get { return Path.Combine(AppPaths.DataDir, "DiscordNodeStereo.ini"); }
         }
 
         public static Settings Load()
@@ -102,8 +102,8 @@ namespace VoxGuard
         public void Save()
         {
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("; Configurações do VoxGuard");
-            sb.AppendLine("[VoxGuard]");
+            sb.AppendLine("; Configurações do DiscordNodeStereo");
+            sb.AppendLine("[DiscordNodeStereo]");
             sb.AppendLine("interval_minutes=" + IntervalMinutes.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("autostart=" + (Autostart ? "1" : "0"));
             sb.AppendLine("source=" + SourcePath);
@@ -125,7 +125,7 @@ namespace VoxGuard
 
         static string FilePath
         {
-            get { return Path.Combine(AppPaths.DataDir, "VoxGuard.log"); }
+            get { return Path.Combine(AppPaths.DataDir, "DiscordNodeStereo.log"); }
         }
 
         public static void Write(string message)
@@ -174,12 +174,12 @@ namespace VoxGuard
     public static class Autostart
     {
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string ValueName = "VoxGuard";
+        const string ValueName = "DiscordNodeStereo";
 
-        // VOXGUARD_NO_AUTOSTART=1 impede mexer no registro (testes).
+        // DISCORDNODESTEREO_NO_AUTOSTART=1 impede mexer no registro (testes).
         static bool Disabled
         {
-            get { return Environment.GetEnvironmentVariable("VOXGUARD_NO_AUTOSTART") == "1"; }
+            get { return Environment.GetEnvironmentVariable("DISCORDNODESTEREO_NO_AUTOSTART") == "1"; }
         }
 
         public static void Apply(bool enabled)

@@ -4,7 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
-using VoxGuard;
+using DiscordNodeStereo;
 
 static class CoreTests
 {
@@ -28,7 +28,7 @@ static class CoreTests
 
     static void Run(string name, Action test)
     {
-        tmp = Path.Combine(Path.GetTempPath(), "voxguard-test-" + Guid.NewGuid().ToString("N"));
+        tmp = Path.Combine(Path.GetTempPath(), "discordnodestereo-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tmp);
         try
         {

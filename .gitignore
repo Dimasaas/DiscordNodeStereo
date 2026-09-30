@@ -7,10 +7,10 @@ obj/
 *.node.gz
 *.node.info
 
-# arquivos que o VoxGuard cria ao lado do .exe
-VoxGuard.ini
-VoxGuard.log
-VoxGuard.log.1
+# arquivos que o DiscordNodeStereo cria ao lado do .exe
+DiscordNodeStereo.ini
+DiscordNodeStereo.log
+DiscordNodeStereo.log.1
 
 # anotações locais
 HANDOFF.md

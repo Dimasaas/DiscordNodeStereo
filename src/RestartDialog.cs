@@ -5,7 +5,7 @@ using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     sealed class RestartDialog : Form
     {
@@ -18,7 +18,7 @@ namespace VoxGuard
         {
             variants = replaced.Select(r => r.Variant).ToList();
             SuspendLayout();
-            Text = "VoxGuard";
+            Text = "DiscordNodeStereo · módulo substituído";
             Icon = AppIcon.Full();
             Font = new Font("Segoe UI", 9F);
             BackColor = Theme.Background;

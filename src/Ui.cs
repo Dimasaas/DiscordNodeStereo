@@ -1,4 +1,4 @@
-// Tema visual, ícone e painéis usados pelas janelas do VoxGuard.
+// Tema visual, ícone e painéis usados pelas janelas do DiscordNodeStereo.
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -6,7 +6,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows.Forms;
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     static class Theme
     {

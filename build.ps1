@@ -1,4 +1,4 @@
-# Compila o VoxGuard -> dist\VoxGuard.exe  (um .exe único, com o .node embutido)
+# Compila o DiscordNodeStereo -> dist\DiscordNodeStereo.exe  (um .exe único, com o .node embutido)
 #
 #   .\build.ps1                         usa ..\Standard\512kbps\discord_voice.node
 #   .\build.ps1 -Node C:\outro.node     usa outro arquivo
@@ -29,7 +29,7 @@ if ($Test) {
 if (-not (Test-Path $Node)) { throw "Arquivo .node não encontrado: $Node  (use -Node <caminho>)" }
 $nodePath = (Resolve-Path $Node).Path
 
-# .node compactado + tamanho/SHA-256 (o VoxGuard compara sem precisar descompactar)
+# .node compactado + tamanho/SHA-256 (o DiscordNodeStereo compara sem precisar descompactar)
 $in = [IO.File]::OpenRead($nodePath)
 $out = [IO.File]::Create("$PSScriptRoot\obj\discord_voice.node.gz")
 $gz = New-Object IO.Compression.GZipStream($out, [IO.Compression.CompressionLevel]::Optimal)
@@ -37,14 +37,14 @@ $in.CopyTo($gz); $gz.Dispose(); $out.Dispose(); $in.Dispose()
 $info = "{0}`n{1}`n" -f (Get-Item $nodePath).Length, (Get-FileHash $nodePath -Algorithm SHA256).Hash
 [IO.File]::WriteAllText("$PSScriptRoot\obj\discord_voice.node.info", $info)
 
-& $csc @common /target:winexe /out:dist\VoxGuard.exe `
+& $csc @common /target:winexe /out:dist\DiscordNodeStereo.exe `
     /win32icon:assets\icon.ico /win32manifest:src\app.manifest `
     /r:System.Windows.Forms.dll /r:System.Drawing.dll `
     /resource:assets\icon.ico,icon.ico `
     /resource:obj\discord_voice.node.gz,discord_voice.node.gz `
     /resource:obj\discord_voice.node.info,discord_voice.node.info `
     src\Core.cs src\Settings.cs src\Ui.cs src\MainForm.cs src\RestartDialog.cs src\Program.cs
-if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar o VoxGuard." }
+if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar o DiscordNodeStereo." }
 
-$exe = Get-Item dist\VoxGuard.exe
+$exe = Get-Item dist\DiscordNodeStereo.exe
 Write-Host ("`nPronto: {0}  ({1:N1} MB)" -f $exe.FullName, ($exe.Length / 1MB)) -ForegroundColor Green

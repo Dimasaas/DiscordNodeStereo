@@ -12,7 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace VoxGuard
+namespace DiscordNodeStereo
 {
     sealed class MainForm : Form
     {
@@ -90,7 +90,7 @@ namespace VoxGuard
             firstCheck.Interval = 400;
             firstCheck.Tick += delegate { firstCheck.Stop(); RunCheck(false); };
             firstCheck.Start();
-            Log.Write("VoxGuard iniciado" + (startHidden ? " na bandeja" : "") + ".");
+            Log.Write("DiscordNodeStereo iniciado" + (startHidden ? " na bandeja" : "") + ".");
         }
 
         // ---------------- interface ----------------
@@ -99,7 +99,7 @@ namespace VoxGuard
         {
             SuspendLayout();
             loadingUi = true;
-            Text = "VoxGuard — Atualizador de módulos para Discord";
+            Text = "DiscordNodeStereo";
             Icon = AppIcon.Full();
             Font = new Font("Segoe UI", 9F);
             BackColor = Theme.Background;
@@ -114,8 +114,8 @@ namespace VoxGuard
             logo.BackColor = Color.Transparent;
             logo.SizeMode = PictureBoxSizeMode.Zoom;
             logo.Image = AppIcon.Logo(128);
-            MakeLabel(header, "VoxGuard", 82, 14, 260, 36, fTitle, Color.White);
-            MakeLabel(header, "Atualizador de módulos para Discord", 85, 50, 300, 20, fSubtitle, Color.FromArgb(235, 232, 255));
+            MakeLabel(header, "DiscordNodeStereo", 82, 14, 312, 36, fTitle, Color.White);
+            MakeLabel(header, "Mic estéreo a 512 kbps no Discord, sempre.", 85, 50, 310, 20, fSubtitle, Color.FromArgb(235, 232, 255));
             Label ver = MakeLabel(header, "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(2), 400, 16, 62, 18,
                                   fSection, Color.FromArgb(225, 225, 255));
             ver.TextAlign = ContentAlignment.TopRight;
@@ -173,7 +173,7 @@ namespace VoxGuard
             txtLog.ScrollBars = ScrollBars.Vertical;
             txtLog.WordWrap = true;
 
-            MakeLabel(this, "Fechar a janela mantém o VoxGuard rodando na bandeja, perto do relógio.", 16, 638, 448, 18,
+            MakeLabel(this, "Ao fechar, ele continua rodando na bandeja (perto do relógio).", 16, 638, 448, 18,
                       null, Theme.Muted);
 
             foreach (VariantRow row in rows)
@@ -260,7 +260,7 @@ namespace VoxGuard
         }
 
         // O .node é sempre o de 512 kbps (mic estéreo) embutido no .exe.
-        // "source=" no VoxGuard.ini existe só como escape para testes.
+        // "source=" no DiscordNodeStereo.ini existe só como escape para testes.
         void UpdateSourceLabel()
         {
             if (source == embedded)
@@ -319,7 +319,7 @@ namespace VoxGuard
             lblStatus.Text = title;
             lblStatus.ForeColor = color == Theme.Muted ? Theme.Text : color;
             lblStatusDetail.Text = detail;
-            SetTrayText("VoxGuard · " + title);
+            SetTrayText("DiscordNodeStereo · " + title);
         }
 
         void LoadLogTail()
@@ -352,9 +352,9 @@ namespace VoxGuard
         void SetupTray()
         {
             tray.Icon = AppIcon.Sized(SystemInformation.SmallIconSize);
-            tray.Text = "VoxGuard";
+            tray.Text = "DiscordNodeStereo";
             ContextMenuStrip menu = new ContextMenuStrip();
-            ToolStripItem open = menu.Items.Add("Abrir VoxGuard", null, delegate { ShowFromTray(); });
+            ToolStripItem open = menu.Items.Add("Abrir DiscordNodeStereo", null, delegate { ShowFromTray(); });
             open.Font = new Font(menu.Font, FontStyle.Bold);
             menu.Items.Add("Verificar agora", null, delegate { RunCheck(true); });
             menu.Items.Add(new ToolStripSeparator());
@@ -375,7 +375,7 @@ namespace VoxGuard
             tray.ShowBalloonTip(6000, title, text, icon);
         }
 
-        // Chamado pelo Program quando alguém abre o .exe de novo com o VoxGuard já rodando.
+        // Chamado pelo Program quando alguém abre o .exe de novo com o DiscordNodeStereo já rodando.
         public void RequestShow()
         {
             if (ui != null)
@@ -410,7 +410,7 @@ namespace VoxGuard
                 Hide();
                 if (!settings.TrayHintShown)
                 {
-                    Balloon("O VoxGuard continua rodando", "Ele fica aqui na bandeja e verifica os Discords " +
+                    Balloon("O DiscordNodeStereo continua rodando", "Ele fica aqui na bandeja e verifica os Discords " +
                             "a cada " + DescribeInterval(settings.IntervalMinutes) + ". Clique no ícone para abrir.", ToolTipIcon.Info);
                     settings.TrayHintShown = true;
                     SaveSettings();
@@ -424,7 +424,7 @@ namespace VoxGuard
         void ExitApp()
         {
             exiting = true;
-            Log.Write("VoxGuard encerrado.");
+            Log.Write("DiscordNodeStereo encerrado.");
             tray.Visible = false;
             tray.Dispose();
             Application.Exit();
@@ -638,7 +638,7 @@ namespace VoxGuard
             }
         }
 
-        // Reabre os que o VoxGuard fechou; se não fechou nenhum, abre o primeiro instalado.
+        // Reabre os que o DiscordNodeStereo fechou; se não fechou nenhum, abre o primeiro instalado.
         void OpenDiscords()
         {
             List<DiscordVariant> targets = closedByUs.Count > 0
