@@ -1,0 +1,18 @@
+# build
+dist/
+obj/
+
+# o .node do Discord não entra no código-fonte (vai só dentro do .exe do release)
+*.node
+*.node.gz
+*.node.info
+
+# arquivos que o VoxGuard cria ao lado do .exe
+VoxGuard.ini
+VoxGuard.log
+VoxGuard.log.1
+
+# anotações locais
+HANDOFF.md
+
+__pycache__/
