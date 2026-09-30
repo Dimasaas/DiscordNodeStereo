@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  Toda atualização do Discord baixa um <code>discord_voice.node</code> novo e o seu <b>mic estéreo a 512 kbps</b> some.<br>
-  O <b>DiscordNodeStereo</b> percebe sozinho e coloca o arquivo certo de volta: no Discord, no PTB e no Canary.
+  Toda atualização do Discord baixa um módulo de voz novo e o seu <b>mic estéreo a 512 kbps</b> some.<br>
+  O <b>DiscordNodeStereo</b> percebe sozinho e coloca o patch de volta: no Discord, no PTB e no Canary.
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
   <tr>
     <td width="50%" valign="top">
       <h3>🎙️ Sempre 512 kbps em estéreo</h3>
-      O <code>.node</code> com o mic estéreo a 512 kbps vai embutido no <code>.exe</code>. É sempre ele que entra no Discord.
+      O patch são dois arquivos que só funcionam juntos: <code>discord_voice.node</code> + <code>index.js</code>. Os dois vão embutidos no <code>.exe</code> e são instalados sempre em par.
     </td>
     <td width="50%" valign="top">
       <h3>🔎 Acha a versão mais nova</h3>
@@ -52,11 +52,11 @@
   <tr>
     <td valign="top">
       <h3>🔁 Troca com o Discord aberto</h3>
-      O Windows trava o <code>.node</code> em uso, mas deixa renomear: o antigo sai do caminho e o novo entra. Backup do original em <code>.original</code>.
+      O Windows trava o <code>.node</code> em uso, mas deixa renomear: o antigo sai do caminho e o novo entra. Se algo falhar no meio, ele desfaz tudo (nada de meio patch). Backup dos originais em <code>.original</code>.
     </td>
     <td valign="top">
-      <h3>🔔 Aviso na hora</h3>
-      Depois de trocar, pergunta: <b>Fechar Discord</b> (taskkill), <b>Abrir Discord</b> (reinicia) ou <b>Depois</b>.
+      <h3>🔔 Aviso na hora + Desfazer</h3>
+      Depois de trocar, pergunta: <b>Fechar Discord</b> (taskkill), <b>Abrir Discord</b> (reinicia) ou <b>Depois</b>. Mudou de ideia? O botão <b>Desfazer</b> volta os arquivos originais.
     </td>
   </tr>
   <tr>
@@ -66,7 +66,7 @@
     </td>
     <td valign="top">
       <h3>🪶 Leve e portátil</h3>
-      Um <code>.exe</code> só, sem instalar nada. Liga com o Windows escondido na bandeja, com 0% de CPU parado e ~7 MB de memória em uso.
+      Um <code>.exe</code> só, sem instalar nada. Liga com o Windows escondido na bandeja (dá pra ligar/desligar na janela ou no menu da bandeja), com 0% de CPU parado e ~7 MB de memória em uso.
     </td>
   </tr>
 </table>
@@ -89,10 +89,10 @@ flowchart LR
     A["⏱️ Timer<br/>(a cada 1 h)"] --> B{"Para cada Discord<br/>normal · PTB · Canary"}
     B --> C["Maior pasta app-*"]
     C --> D["Maior discord_voice-*"]
-    D --> E{"discord_voice.node<br/>já é o de 512 kbps?"}
+    D --> E{"discord_voice.node + index.js<br/>já são os de 512 kbps?"}
     E -- sim --> F["✅ Tudo certo"]
     E -- não --> G["💾 Backup .original"]
-    G --> H["🔁 Renomeia o antigo<br/>e coloca o novo"]
+    G --> H["🔁 Troca os dois juntos<br/>(ou desfaz se falhar)"]
     H --> I["🔔 Aviso: reinicie o Discord"]
 ```
 
@@ -104,11 +104,16 @@ C:\Users\<usuário>\AppData\Local\Discord          (ou DiscordPTB / DiscordCanar
     └── modules
         └── discord_voice-1                       ← maior módulo
             └── discord_voice
-                ├── discord_voice.node            ← aqui entra o de 512 kbps estéreo
-                └── discord_voice.node.original   ← backup do arquivo do Discord
+                ├── discord_voice.node            ← patch de 512 kbps estéreo
+                ├── index.js                      ← patch (par do .node)
+                ├── discord_voice.node.original   ← backup do Discord
+                └── index.js.original             ← backup do Discord
 ```
 
-Para comparar, ele olha primeiro o tamanho e depois o **SHA-256**. O `.node` embutido já vem com tamanho e hash calculados no build, então a verificação de hora em hora nem precisa descompactar nada.
+> [!IMPORTANT]
+> Os dois arquivos andam juntos. O `index.js` novo do Discord chama funções que o `.node` de 512 kbps não tem; com meio patch o Discord marca "instalação corrompida", cai num motor de voz reserva e fica lento. Por isso o DiscordNodeStereo nunca troca um sem o outro.
+
+Para comparar, ele olha primeiro o tamanho e depois o **SHA-256** de cada arquivo. O patch embutido já vem com tamanho e hash calculados no build, então a verificação de hora em hora nem precisa descompactar nada.
 
 ## 🧰 Configurações
 
@@ -119,22 +124,21 @@ Tudo se configura pela janela. Os ajustes ficam no `DiscordNodeStereo.ini`, ao l
 | `interval_minutes` | `60` | Intervalo entre verificações (qualquer valor a partir de 1). |
 | `autostart` | `1` | Iniciar com o Windows (`HKCU\...\Run`, sem precisar de admin). |
 | `tray_hint_shown` | `0` | Se o balão "continuo rodando na bandeja" já apareceu. |
+| `paused` | `0` | `1` depois do **Desfazer**: não reinstala o patch até você clicar em **Reinstalar patch**. |
 | `last_version.<Discord>` | — | Última versão vista de cada Discord, para avisar quando sair uma nova. |
-| `source` | *(vazio)* | Só para testes: caminho de outro `.node`. O normal é sempre o de 512 kbps embutido. |
+| `source` | *(vazio)* | Só para testes: pasta com outro `discord_voice.node` + `index.js`. O normal é sempre o patch de 512 kbps embutido. |
 
 ## 🛠️ Compilando
 
 Não precisa instalar nada: o `build.ps1` usa o compilador C# que já vem com o .NET Framework 4 do Windows.
 
 ```powershell
-# o .node fica fora do repositório: ..\Standard\512kbps\discord_voice.node
+# o patch fica fora do repositório: ..\Standard\Standard.zip (discord_voice.node + index.js soltos)
 .\build.ps1 -Test          # roda os testes e gera dist\DiscordNodeStereo.exe
 
-# ou apontando para o arquivo
-.\build.ps1 -Node "D:\arquivos\discord_voice.node"
+# ou apontando para outro zip/pasta com os dois arquivos
+.\build.ps1 -Package "D:\arquivos\patch-512kbps"
 ```
-
-A arte (ícone, banner e mockup) sai de `python tools/make_assets.py` (precisa do Pillow).
 
 ## 🧪 Testes
 
@@ -142,13 +146,17 @@ A arte (ícone, banner e mockup) sai de `python tools/make_assets.py` (precisa d
 Testes:
   ok    versões comparadas como número
   ok    pega a pasta app-* de maior número
-  ok    substitui e guarda backup .original
-  ok    não mexe quando já está certo
+  ok    troca .node e index.js juntos, com backup dos dois
+  ok    não mexe quando os dois já estão certos
+  ok    só o index.js errado: troca o index.js
   ok    nova versão usa o módulo mais novo
-  ok    substitui mesmo com o arquivo travado
+  ok    troca mesmo com o .node travado
+  ok    se uma troca falha, desfaz a outra (nada de meio patch)
   ok    fonte gzip embutida tem o hash certo
-  ok    erros: sem Discord, sem módulo, sem origem
+  ok    erros: sem Discord, sem módulo, sem arquivo do patch
   ok    verifica Discord, PTB e Canary de uma vez
+  ok    desfazer volta o .node e o index.js originais
+  ok    desfazer sem patch instalado não mexe em nada
 
 Todos os testes passaram.
 ```
@@ -169,7 +177,6 @@ O teste do "arquivo travado" carrega uma DLL de verdade para simular o Discord a
 ├── tests/CoreTests.cs     testes do núcleo
 ├── assets/icon.ico
 ├── docs/                  imagens deste README
-├── tools/make_assets.py   gera ícone, banner e mockup
 └── build.ps1
 ```
 
@@ -179,6 +186,12 @@ O teste do "arquivo travado" carrega uma DLL de verdade para simular o Discord a
 <summary><b>Não acho o ícone na bandeja</b></summary>
 
 O Windows 11 esconde ícones novos. Clique na setinha **^** perto do relógio, ou vá em *Configurações → Personalização → Barra de tarefas → Outros ícones da bandeja* e ative o DiscordNodeStereo. Abrir o `.exe` de novo também traz a janela de volta.
+</details>
+
+<details>
+<summary><b>Discord lento / "Potentially corrupt installation"</b></summary>
+
+Isso acontece com meio patch: só o `.node` trocado e o `index.js` do Discord. Era o bug da v1.0.0. Use a versão mais nova: ela instala os dois arquivos juntos.
 </details>
 
 <details>
@@ -196,13 +209,15 @@ O Discord só baixa o módulo de voz na primeira vez que você entra num canal d
 <details>
 <summary><b>Quero voltar ao arquivo original</b></summary>
 
-Feche o DiscordNodeStereo (bandeja → **Sair**) e o Discord. Na pasta `discord_voice`, apague o `discord_voice.node` e renomeie o `discord_voice.node.original` para `discord_voice.node`.
+Clique em **Desfazer** na janela. Ele volta o `discord_voice.node` e o `index.js` originais em todos os Discords e fica pausado até você clicar em **Reinstalar patch**. Depois é só reiniciar o Discord (o aviso já oferece o botão).
+
+Na mão: feche o DiscordNodeStereo e o Discord, e na pasta `discord_voice` tire o `.original` do nome dos backups (`discord_voice.node.original` → `discord_voice.node`, `index.js.original` → `index.js`).
 </details>
 
 <details>
 <summary><b>Como desinstalar</b></summary>
 
-Desmarque **Iniciar com o Windows**, clique em **Sair** na bandeja e apague o `DiscordNodeStereo.exe`, o `DiscordNodeStereo.ini` e o `DiscordNodeStereo.log`.
+Desmarque **Iniciar com o Windows** (na janela ou no menu da bandeja), clique em **Sair** na bandeja e apague o `DiscordNodeStereo.exe`, o `DiscordNodeStereo.ini` e o `DiscordNodeStereo.log`.
 </details>
 
 ## ⚠️ Aviso

@@ -14,11 +14,12 @@ namespace DiscordNodeStereo
         readonly Label lblMessage;
         readonly Button btnKill;
 
-        public RestartDialog(List<CheckResult> replaced)
+        // restored = true quando veio do "Desfazer" (voltaram os arquivos originais do Discord).
+        public RestartDialog(List<CheckResult> replaced, bool restored)
         {
             variants = replaced.Select(r => r.Variant).ToList();
             SuspendLayout();
-            Text = "DiscordNodeStereo · módulo substituído";
+            Text = restored ? "DiscordNodeStereo · patch desfeito" : "DiscordNodeStereo · módulo substituído";
             Icon = AppIcon.Full();
             Font = new Font("Segoe UI", 9F);
             BackColor = Theme.Background;
@@ -42,15 +43,18 @@ namespace DiscordNodeStereo
             title.SetBounds(94, 24, 344, 28);
             title.Font = new Font("Segoe UI Semibold", 13F);
             title.ForeColor = Theme.Text;
-            title.Text = "Arquivos .node substituídos";
+            title.Text = restored ? "Arquivos originais de volta" : "Patch de 512 kbps instalado";
             Controls.Add(title);
 
             List<string> names = replaced.Select(r => r.Variant.Display + " " + r.Target.App.Version).ToList();
             lblMessage = new Label();
             lblMessage.SetBounds(95, 56, 344, 76);
             lblMessage.ForeColor = Theme.Muted;
-            lblMessage.Text = "O módulo de voz de 512 kbps foi colocado no " + JoinNames(names) +
-                              ".\nReinicie o Discord para ele carregar o arquivo novo.";
+            lblMessage.Text = restored
+                ? "O discord_voice.node e o index.js originais voltaram no " + JoinNames(names) +
+                  ".\nReinicie o Discord para ele carregar os originais."
+                : "O discord_voice.node e o index.js de 512 kbps foram colocados no " + JoinNames(names) +
+                  ".\nReinicie o Discord para ele carregar os arquivos novos.";
             Controls.Add(lblMessage);
 
             btnKill = Theme.MakeButton("Fechar Discord", false);
@@ -132,7 +136,7 @@ namespace DiscordNodeStereo
                 try
                 {
                     DiscordProcess.Open(v);
-                    Log.Write("Abrindo o " + v.Display + " com o módulo novo…");
+                    Log.Write("Abrindo o " + v.Display + "…");
                 }
                 catch (Exception ex)
                 {

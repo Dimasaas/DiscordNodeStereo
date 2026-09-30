@@ -1,5 +1,6 @@
 // Testes do núcleo (src/Core.cs). Rodar com:  .\build.ps1 -Test
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
@@ -15,13 +16,17 @@ static class CoreTests
     {
         Run("versões comparadas como número", VersionsAreNumeric);
         Run("pega a pasta app-* de maior número", PicksHighestFolders);
-        Run("substitui e guarda backup .original", ReplacesAndBacksUp);
-        Run("não mexe quando já está certo", UpToDateIsNoOp);
+        Run("troca .node e index.js juntos, com backup dos dois", ReplacesBothFiles);
+        Run("não mexe quando os dois já estão certos", UpToDateIsNoOp);
+        Run("só o index.js errado: troca o index.js", ReplacesIndexJsAlone);
         Run("nova versão usa o módulo mais novo", NewVersionUsesHighestModule);
-        Run("substitui mesmo com o arquivo travado", ReplacesLockedFile);
+        Run("troca mesmo com o .node travado", ReplacesLockedFile);
+        Run("se uma troca falha, desfaz a outra (nada de meio patch)", RollsBackHalfPatch);
         Run("fonte gzip embutida tem o hash certo", GzipSourceMatchesFile);
-        Run("erros: sem Discord, sem módulo, sem origem", ReportsProblems);
+        Run("erros: sem Discord, sem módulo, sem arquivo do patch", ReportsProblems);
         Run("verifica Discord, PTB e Canary de uma vez", ChecksAllVariants);
+        Run("desfazer volta o .node e o index.js originais", UndoRestoresOriginals);
+        Run("desfazer sem patch instalado não mexe em nada", UndoWithoutPatchIsNoOp);
         Console.WriteLine(failures == 0 ? "\nTodos os testes passaram." : "\n" + failures + " teste(s) falharam.");
         return failures == 0 ? 0 : 1;
     }
@@ -59,15 +64,30 @@ static class CoreTests
         return path;
     }
 
-    static string MakeApp(string root, string version, int module, string content)
+    static string Read(string dir, string name)
     {
-        return Write(Path.Combine(root, "app-" + version, "modules", "discord_voice-" + module, "discord_voice",
-                                  "discord_voice.node"), content);
+        return File.ReadAllText(Path.Combine(dir, name));
     }
 
-    static FileNodeSource Source(string content)
+    // Cria ...\app-X\modules\discord_voice-N\discord_voice com discord_voice.node + index.js e devolve a pasta.
+    static string MakeApp(string root, string version, int module, string node, string js)
     {
-        return new FileNodeSource(Write(Path.Combine(tmp, "patch", "discord_voice.node"), content));
+        string dir = Path.Combine(root, "app-" + version, "modules", "discord_voice-" + module, "discord_voice");
+        Write(Path.Combine(dir, "discord_voice.node"), node);
+        Write(Path.Combine(dir, "index.js"), js);
+        return dir;
+    }
+
+    // O patch de teste: os mesmos dois arquivos do de verdade.
+    static List<PatchFile> Patch(string node, string js)
+    {
+        string dir = Path.Combine(tmp, "patch");
+        Write(Path.Combine(dir, "discord_voice.node"), node);
+        Write(Path.Combine(dir, "index.js"), js);
+        List<PatchFile> files = new List<PatchFile>();
+        foreach (string name in Patcher.FileNames)
+            files.Add(new PatchFile(name, new FileNodeSource(Path.Combine(dir, name))));
+        return files;
     }
 
     // ---------------------------------------------------------------
@@ -90,36 +110,50 @@ static class CoreTests
         Assert(best != null && best.Name == "app-1.0.10000", "esperava app-1.0.10000, veio " + (best == null ? "null" : best.Name));
     }
 
-    static void ReplacesAndBacksUp()
+    static void ReplacesBothFiles()
     {
         string root = Path.Combine(tmp, "Discord");
-        string dst = MakeApp(root, "1.0.9259", 1, "ORIGINAL");
-        CheckResult r = Patcher.Check(root, Source("PATCHED"), "");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-SET", "JS-SET");
+        CheckResult r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
         Assert(r.Status == CheckStatus.Replaced, "status " + r.Status + " " + r.Error);
-        Assert(File.ReadAllText(dst) == "PATCHED", "conteúdo não foi trocado");
-        Assert(File.ReadAllText(dst + ".original") == "ORIGINAL", "backup .original errado");
-        Assert(Directory.GetFiles(Path.GetDirectoryName(dst)).Length == 2, "sobrou lixo na pasta");
+        Assert(r.ReplacedFiles.Count == 2, "esperava 2 arquivos trocados, veio " + r.ReplacedFiles.Count);
+        Assert(Read(dir, "discord_voice.node") == "NODE-512" && Read(dir, "index.js") == "JS-512", "conteúdo não foi trocado");
+        Assert(Read(dir, "discord_voice.node.original") == "NODE-SET", "backup do .node errado");
+        Assert(Read(dir, "index.js.original") == "JS-SET", "backup do index.js errado");
+        Assert(Directory.GetFiles(dir).Length == 4, "sobrou lixo na pasta");
     }
 
     static void UpToDateIsNoOp()
     {
         string root = Path.Combine(tmp, "Discord");
-        string dst = MakeApp(root, "1.0.9259", 1, "PATCHED");
-        CheckResult r = Patcher.Check(root, Source("PATCHED"), "1.0.9259");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-512", "JS-512");
+        CheckResult r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "1.0.9259");
         Assert(r.Status == CheckStatus.UpToDate && !r.NewVersion, "status " + r.Status);
-        Assert(!File.Exists(dst + ".original"), "não deveria criar backup");
+        Assert(Directory.GetFiles(dir).Length == 2, "não deveria criar backup");
+    }
+
+    // O bug de 29/09: .node de 512 kbps com o index.js novo do Discord. Tem que trocar o index.js.
+    static void ReplacesIndexJsAlone()
+    {
+        string root = Path.Combine(tmp, "Discord");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-512", "JS-SET");
+        CheckResult r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
+        Assert(r.Status == CheckStatus.Replaced, "status " + r.Status);
+        Assert(r.ReplacedFiles.Count == 1 && r.ReplacedFiles[0] == "index.js", "deveria trocar só o index.js");
+        Assert(Read(dir, "index.js") == "JS-512", "index.js não foi trocado");
     }
 
     static void NewVersionUsesHighestModule()
     {
         string root = Path.Combine(tmp, "Discord");
-        MakeApp(root, "1.0.9259", 1, "ORIGINAL");
-        MakeApp(root, "1.0.9300", 1, "ORIGINAL");
-        string newest = MakeApp(root, "1.0.9300", 2, "ORIGINAL");
-        CheckResult r = Patcher.Check(root, Source("PATCHED"), "1.0.9259");
+        MakeApp(root, "1.0.9259", 1, "NODE", "JS");
+        MakeApp(root, "1.0.9300", 1, "NODE", "JS");
+        string newest = MakeApp(root, "1.0.9300", 2, "NODE", "JS");
+        CheckResult r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "1.0.9259");
         Assert(r.NewVersion, "deveria detectar versão nova");
         Assert(r.Target.Module.Name == "discord_voice-2", "módulo errado: " + r.Target.Module.Name);
-        Assert(File.ReadAllText(newest) == "PATCHED", "não trocou o módulo mais novo");
+        Assert(Read(newest, "discord_voice.node") == "NODE-512" && Read(newest, "index.js") == "JS-512",
+               "não trocou o módulo mais novo");
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -132,23 +166,42 @@ static class CoreTests
     static void ReplacesLockedFile()
     {
         string root = Path.Combine(tmp, "Discord");
-        string dst = MakeApp(root, "1.0.9259", 1, "x");
-        File.Copy(Path.Combine(Environment.SystemDirectory, "version.dll"), dst, true);
-        IntPtr h = LoadLibraryW(dst);
+        string dir = MakeApp(root, "1.0.9259", 1, "x", "JS-SET");
+        string node = Path.Combine(dir, "discord_voice.node");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "version.dll"), node, true);
+        IntPtr h = LoadLibraryW(node);
         Assert(h != IntPtr.Zero, "não consegui carregar a DLL de teste");
         bool writeBlocked = false;
-        try { File.WriteAllText(dst, "x"); } catch (IOException) { writeBlocked = true; } catch (UnauthorizedAccessException) { writeBlocked = true; }
+        try { File.WriteAllText(node, "x"); } catch (IOException) { writeBlocked = true; } catch (UnauthorizedAccessException) { writeBlocked = true; }
         Assert(writeBlocked, "o arquivo deveria estar travado");
 
-        CheckResult r = Patcher.Check(root, Source("PATCHED"), "");
+        CheckResult r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
         Assert(r.Status == CheckStatus.Replaced, "status " + r.Status + " " + r.Error);
-        Assert(File.ReadAllText(dst) == "PATCHED", "conteúdo não foi trocado");
-        string dir = Path.GetDirectoryName(dst);
+        Assert(Read(dir, "discord_voice.node") == "NODE-512" && Read(dir, "index.js") == "JS-512", "conteúdo não foi trocado");
         Assert(Directory.GetFiles(dir, "*.old-*").Length == 1, "esperava o .old travado");
 
         FreeLibrary(h);
-        Patcher.Check(root, Source("PATCHED"), "");
+        Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
         Assert(Directory.GetFiles(dir, "*.old-*").Length == 0, ".old deveria ser limpo depois de solto");
+    }
+
+    // Se o index.js não puder ser trocado, o .node também não pode ficar trocado.
+    static void RollsBackHalfPatch()
+    {
+        string root = Path.Combine(tmp, "Discord");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-SET", "JS-SET");
+        CheckResult r;
+        // aberto sem permitir renomear: a troca do index.js (o segundo arquivo) falha
+        using (new FileStream(Path.Combine(dir, "index.js"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            r = Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
+        Assert(r.Status == CheckStatus.Failed, "deveria falhar, veio " + r.Status);
+        Assert(Read(dir, "discord_voice.node") == "NODE-SET", "o .node deveria voltar ao original");
+        Assert(Read(dir, "index.js") == "JS-SET", "o index.js deveria continuar o original");
+        Assert(Directory.GetFiles(dir, "*.new").Length == 0 && Directory.GetFiles(dir, "*.old-*").Length == 0,
+               "sobrou arquivo temporário");
+
+        CheckResult again = Patcher.Check(root, Patch("NODE-512", "JS-512"), "");
+        Assert(again.Status == CheckStatus.Replaced, "depois de solto deveria trocar, veio " + again.Status);
     }
 
     static void GzipSourceMatchesFile()
@@ -164,9 +217,46 @@ static class CoreTests
         Assert(Hashing.Equal(src.Hash, Hashing.Sha256File(file)), "hash diferente");
 
         string root = Path.Combine(tmp, "Discord");
-        string dst = MakeApp(root, "1.0.1", 1, "ORIGINAL");
-        Assert(Patcher.Check(root, src, "").Status == CheckStatus.Replaced, "não substituiu com gzip");
-        Assert(File.ReadAllText(dst) == File.ReadAllText(file), "conteúdo descompactado errado");
+        string dir = MakeApp(root, "1.0.1", 1, "ORIGINAL", "JS");
+        List<PatchFile> patch = new List<PatchFile> { new PatchFile("discord_voice.node", src) };
+        Assert(Patcher.Check(root, patch, "").Status == CheckStatus.Replaced, "não substituiu com gzip");
+        Assert(Read(dir, "discord_voice.node") == File.ReadAllText(file), "conteúdo descompactado errado");
+    }
+
+    static void ReportsProblems()
+    {
+        string root = Path.Combine(tmp, "Discord");
+        List<PatchFile> patch = Patch("P", "J");
+        Assert(Patcher.Check(root, patch, "").Status == CheckStatus.DiscordNotFound, "sem Discord");
+        Directory.CreateDirectory(Path.Combine(root, "app-1.0.1", "modules"));
+        Assert(Patcher.Check(root, patch, "").Status == CheckStatus.ModuleNotFound, "sem módulo");
+        string dir = MakeApp(root, "1.0.1", 1, "ORIGINAL", "JS");
+        File.Delete(Path.Combine(tmp, "patch", "index.js"));
+        CheckResult r = Patcher.Check(root, patch, "");
+        Assert(r.Status == CheckStatus.SourceMissing && r.Error.EndsWith("index.js"), "sem index.js: " + r.Status);
+        Assert(Read(dir, "discord_voice.node") == "ORIGINAL", "não pode trocar só o .node");
+    }
+
+    static void UndoRestoresOriginals()
+    {
+        string root = Path.Combine(tmp, "Discord");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-SET", "JS-SET");
+        Assert(Patcher.Check(root, Patch("NODE-512", "JS-512"), "").Status == CheckStatus.Replaced, "instalar");
+        CheckResult r = Patcher.Restore(root);
+        Assert(r.Status == CheckStatus.Restored && r.ReplacedFiles.Count == 2, "status " + r.Status + " " + r.Error);
+        Assert(Read(dir, "discord_voice.node") == "NODE-SET" && Read(dir, "index.js") == "JS-SET", "não voltou o original");
+        Assert(Directory.GetFiles(dir, "*.new").Length == 0 && Directory.GetFiles(dir, "*.old-*").Length == 0, "sobrou lixo");
+        Assert(Patcher.Restore(root).Status == CheckStatus.NothingToRestore, "segunda vez não tem o que desfazer");
+    }
+
+    static void UndoWithoutPatchIsNoOp()
+    {
+        string root = Path.Combine(tmp, "Discord");
+        string dir = MakeApp(root, "1.0.9259", 1, "NODE-SET", "JS-SET");
+        CheckResult r = Patcher.Restore(root);
+        Assert(r.Status == CheckStatus.NothingToRestore, "status " + r.Status);
+        Assert(Directory.GetFiles(dir).Length == 2, "não pode criar nem apagar arquivos");
+        Assert(Patcher.Restore(Path.Combine(tmp, "NaoExiste")).Status == CheckStatus.DiscordNotFound, "sem Discord");
     }
 
     static void ChecksAllVariants()
@@ -176,11 +266,11 @@ static class CoreTests
         Environment.SetEnvironmentVariable("LOCALAPPDATA", fakeLocal);   // só neste processo de teste
         try
         {
-            string stable = MakeApp(Path.Combine(fakeLocal, "Discord"), "1.0.9259", 1, "ORIGINAL");
-            string canary = MakeApp(Path.Combine(fakeLocal, "DiscordCanary"), "1.0.1026", 1, "PATCHED");
-            var last = new System.Collections.Generic.Dictionary<string, string>();
+            string stable = MakeApp(Path.Combine(fakeLocal, "Discord"), "1.0.9259", 1, "NODE-SET", "JS-SET");
+            string canary = MakeApp(Path.Combine(fakeLocal, "DiscordCanary"), "1.0.1026", 1, "NODE-512", "JS-512");
+            Dictionary<string, string> last = new Dictionary<string, string>();
             last["Discord"] = "1.0.9000";
-            var results = Patcher.CheckAll(Source("PATCHED"), last);
+            List<CheckResult> results = Patcher.CheckAll(Patch("NODE-512", "JS-512"), last);
             Assert(results.Count == 3, "esperava 3 resultados");
             Assert(results[0].Variant.Id == "Discord" && results[0].Status == CheckStatus.Replaced && results[0].NewVersion,
                    "Discord: " + results[0].Status);
@@ -188,22 +278,11 @@ static class CoreTests
                    "PTB: " + results[1].Status);
             Assert(results[2].Variant.Id == "DiscordCanary" && results[2].Status == CheckStatus.UpToDate,
                    "Canary: " + results[2].Status);
-            Assert(File.ReadAllText(stable) == "PATCHED" && File.ReadAllText(canary) == "PATCHED", "conteúdo");
+            Assert(Read(stable, "index.js") == "JS-512" && Read(canary, "discord_voice.node") == "NODE-512", "conteúdo");
         }
         finally
         {
             Environment.SetEnvironmentVariable("LOCALAPPDATA", previous);
         }
-    }
-
-    static void ReportsProblems()
-    {
-        string root = Path.Combine(tmp, "Discord");
-        Assert(Patcher.Check(root, Source("P"), "").Status == CheckStatus.DiscordNotFound, "sem Discord");
-        Directory.CreateDirectory(Path.Combine(root, "app-1.0.1", "modules"));
-        Assert(Patcher.Check(root, Source("P"), "").Status == CheckStatus.ModuleNotFound, "sem módulo");
-        MakeApp(root, "1.0.1", 1, "ORIGINAL");
-        Assert(Patcher.Check(root, new FileNodeSource(Path.Combine(tmp, "nao-existe.node")), "").Status == CheckStatus.SourceMissing,
-               "sem origem");
     }
 }

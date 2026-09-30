@@ -30,9 +30,9 @@ namespace DiscordNodeStereo
         }
 
         readonly Settings settings;
-        readonly NodeSource embedded;
+        readonly List<PatchFile> embedded;   // discord_voice.node + index.js de 512 kbps
         readonly long embeddedLength;
-        readonly NodeSource source;
+        readonly List<PatchFile> patch;
 
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
         readonly System.Windows.Forms.Timer firstCheck = new System.Windows.Forms.Timer();
@@ -59,17 +59,19 @@ namespace DiscordNodeStereo
         Label lblStatus, lblStatusDetail, lblSource;
         ComboBox cmbInterval;
         CheckBox chkAutostart;
-        Button btnCheck, btnKill, btnOpen;
+        ToolStripMenuItem trayAutostart;
+        Button btnCheck, btnKill, btnOpen, btnUndo;
+        ToolStripItem trayCheck;
         TextBox txtLog;
         StatusDot dot;
 
-        public MainForm(bool startHidden, NodeSource embeddedSource, long embeddedSize)
+        public MainForm(bool startHidden, List<PatchFile> embeddedPatch, long embeddedSize)
         {
             allowVisible = !startHidden;
-            embedded = embeddedSource;
+            embedded = embeddedPatch;
             embeddedLength = embeddedSize;
             settings = Settings.Load();
-            source = string.IsNullOrEmpty(settings.SourcePath) ? embedded : new FileNodeSource(settings.SourcePath);
+            patch = string.IsNullOrEmpty(settings.SourcePath) ? embedded : PatchFromFolder(settings.SourcePath);
 
             BuildUi();
             ui = SynchronizationContext.Current;
@@ -132,8 +134,11 @@ namespace DiscordNodeStereo
             // Card: status geral
             CardPanel status = Place(this, new CardPanel(), 16, 264, 448, 72);
             dot = Place(status, new StatusDot(), 16, 17, 18, 18);
-            lblStatus = MakeLabel(status, "Aguardando a primeira verificação…", 42, 12, 392, 26, fStatus, Theme.Text);
-            lblStatusDetail = MakeLabel(status, "", 43, 40, 392, 20, null, Theme.Muted);
+            lblStatus = MakeLabel(status, "Aguardando a primeira verificação…", 42, 12, 290, 26, fStatus, Theme.Text);
+            lblStatusDetail = MakeLabel(status, "", 43, 40, 290, 20, null, Theme.Muted);
+            btnUndo = Place(status, Theme.MakeButton("Desfazer", false), 340, 19, 92, 34);
+            btnUndo.Click += delegate { UndoPatch(); };
+            tips.SetToolTip(btnUndo, "Volta o discord_voice.node e o index.js originais do Discord e pausa o DiscordNodeStereo");
 
             // Card: configurações
             CardPanel config = Place(this, new CardPanel(), 16, 348, 448, 118);
@@ -147,7 +152,7 @@ namespace DiscordNodeStereo
             chkAutostart.Text = "Iniciar com o Windows (fica quietinho na bandeja)";
             chkAutostart.Checked = settings.Autostart;
             chkAutostart.CheckedChanged += OnAutostartChanged;
-            MakeLabel(config, "Arquivo .node", 16, 90, 140, 20, null, Theme.Muted);
+            MakeLabel(config, "Arquivos do patch", 16, 90, 140, 20, null, Theme.Muted);
             lblSource = MakeLabel(config, "", 160, 90, 276, 20, fBold, Theme.Text);
             UpdateSourceLabel();
 
@@ -260,13 +265,22 @@ namespace DiscordNodeStereo
         }
 
         // O .node é sempre o de 512 kbps (mic estéreo) embutido no .exe.
-        // "source=" no DiscordNodeStereo.ini existe só como escape para testes.
+        // "source=" no DiscordNodeStereo.ini (uma pasta com os dois arquivos) existe só como escape para testes.
         void UpdateSourceLabel()
         {
-            if (source == embedded)
-                lblSource.Text = "512 kbps estéreo  ·  embutido (" + FormatSize(embeddedLength) + ")";
+            if (patch == embedded)
+                lblSource.Text = "512 kbps estéreo  ·  .node + index.js (" + FormatSize(embeddedLength) + ")";
             else
-                lblSource.Text = Path.GetFileName(source.Description) + "  ·  " + source.Description;
+                lblSource.Text = "pasta: " + settings.SourcePath;
+            tips.SetToolTip(lblSource, "discord_voice.node + index.js, instalados juntos na pasta discord_voice");
+        }
+
+        static List<PatchFile> PatchFromFolder(string folder)
+        {
+            List<PatchFile> files = new List<PatchFile>();
+            foreach (string name in Patcher.FileNames)
+                files.Add(new PatchFile(name, new FileNodeSource(Path.Combine(folder, name))));
+            return files;
         }
 
         static string FormatSize(long bytes)
@@ -356,7 +370,11 @@ namespace DiscordNodeStereo
             ContextMenuStrip menu = new ContextMenuStrip();
             ToolStripItem open = menu.Items.Add("Abrir DiscordNodeStereo", null, delegate { ShowFromTray(); });
             open.Font = new Font(menu.Font, FontStyle.Bold);
-            menu.Items.Add("Verificar agora", null, delegate { RunCheck(true); });
+            trayCheck = menu.Items.Add("Verificar agora", null, delegate { RunCheck(true); });
+            trayAutostart = new ToolStripMenuItem("Iniciar com o Windows");
+            trayAutostart.Checked = settings.Autostart;
+            trayAutostart.Click += delegate { chkAutostart.Checked = !chkAutostart.Checked; };   // mesma lógica da caixinha
+            menu.Items.Add(trayAutostart);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Sair", null, delegate { ExitApp(); });
             tray.ContextMenuStrip = menu;
@@ -440,16 +458,30 @@ namespace DiscordNodeStereo
             timer.Start();
         }
 
+        // Depois do "Desfazer" o app fica pausado: a verificação automática não reinstala nada.
+        // Clicar em "Reinstalar patch" (o mesmo botão de verificar) tira da pausa.
         async void RunCheck(bool manual)
         {
             if (checking)
                 return;
+            if (settings.Paused)
+            {
+                if (!manual)
+                {
+                    ShowPaused();
+                    return;
+                }
+                settings.Paused = false;
+                SaveSettings();
+                Log.Write("Patch reativado: reinstalando o 512 kbps estéreo.");
+            }
             checking = true;
             btnCheck.Enabled = false;
+            btnUndo.Enabled = false;
             btnCheck.Text = "Verificando…";
             SetStatus(Theme.Muted, "Verificando…", "Procurando a versão mais nova de cada Discord.");
 
-            NodeSource src = source;
+            List<PatchFile> src = patch;
             Dictionary<string, string> last = new Dictionary<string, string>(settings.LastVersions);
             List<CheckResult> results;
             try
@@ -465,10 +497,83 @@ namespace DiscordNodeStereo
 
             checking = false;
             btnCheck.Enabled = true;
-            btnCheck.Text = "Verificar agora";
+            btnUndo.Enabled = true;
+            UpdateCheckButtons();
             RestartTimer();
             if (results != null)
                 HandleResults(results, manual);
+            TrimMemory();
+        }
+
+        void UpdateCheckButtons()
+        {
+            string text = settings.Paused ? "Reinstalar patch" : "Verificar agora";
+            btnCheck.Text = text;
+            trayCheck.Text = text;
+        }
+
+        void ShowPaused()
+        {
+            foreach (VariantRow row in rows)
+            {
+                VoiceTarget t = DiscordLocator.Resolve(DiscordLocator.RootFor(row.Variant));
+                ShowVariantInfo(row, t, null);
+                if (t.App != null)
+                {
+                    row.State.Text = "original";
+                    row.Dot.DotColor = Theme.Muted;
+                    row.State.ForeColor = Theme.Muted;
+                }
+            }
+            SetStatus(Theme.Muted, "Pausado: arquivos originais", "Clique em \"Reinstalar patch\" para voltar o 512 kbps.");
+            UpdateCheckButtons();
+        }
+
+        async void UndoPatch()
+        {
+            if (checking)
+                return;
+            DialogResult answer = MessageBox.Show(this,
+                "Voltar o discord_voice.node e o index.js originais em todos os Discords?\n\n" +
+                "O DiscordNodeStereo fica pausado (não reinstala o patch sozinho) até você clicar em \"Reinstalar patch\".",
+                "Desfazer o patch", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+                return;
+
+            checking = true;
+            btnCheck.Enabled = false;
+            btnUndo.Enabled = false;
+            SetStatus(Theme.Muted, "Desfazendo…", "Voltando os arquivos originais do Discord.");
+            List<CheckResult> results;
+            try
+            {
+                results = await Task.Run(delegate { return Patcher.RestoreAll(); });
+            }
+            catch (Exception e)
+            {
+                results = new List<CheckResult>();
+                Log.Write("Falha ao desfazer: " + e.Message);
+            }
+            checking = false;
+            btnCheck.Enabled = true;
+            btnUndo.Enabled = true;
+
+            settings.Paused = true;
+            SaveSettings();
+            List<CheckResult> restored = results.Where(r => r.Status == CheckStatus.Restored).ToList();
+            foreach (CheckResult r in restored)
+                Log.Write(r.Variant.Display + " " + r.Target.App.Version + ": originais de volta (" +
+                          string.Join(" + ", r.ReplacedFiles) + ").");
+            foreach (CheckResult r in results.Where(r => r.Status == CheckStatus.Failed))
+                Log.Write("Problema ao desfazer no " + r.Variant.Display + ": " + r.Error);
+            if (restored.Count == 0 && !results.Any(r => r.Status == CheckStatus.Failed))
+                Log.Write("Nada para desfazer: os Discords já estão com os arquivos originais.");
+            Log.Write("DiscordNodeStereo pausado.");
+            ShowPaused();
+            if (results.Any(r => r.Status == CheckStatus.Failed))
+                SetStatus(Theme.Bad, "Não consegui desfazer tudo", results.First(r => r.Status == CheckStatus.Failed).Error);
+            if (restored.Count > 0)
+                ShowRestartDialog(restored, true);
             TrimMemory();
         }
 
@@ -505,7 +610,7 @@ namespace DiscordNodeStereo
                     case CheckStatus.Replaced:
                         replaced.Add(r);
                         Log.Write((r.NewVersion ? "Nova versão do " + name + "! " : name + ": ") +
-                                  "substituído " + r.Target.Module.Name + "\\" + DiscordLocator.FileName);
+                                  "substituídos " + string.Join(" + ", r.ReplacedFiles) + " em " + r.Target.Module.Name);
                         break;
                     case CheckStatus.ModuleNotFound:
                         noModule.Add(r);
@@ -523,12 +628,12 @@ namespace DiscordNodeStereo
             {
                 SetStatus(Theme.Warn, "Módulo substituído — reinicie o Discord", when);
                 lastProblem = "";
-                ShowRestartDialog(replaced);
+                ShowRestartDialog(replaced, false);
             }
             else if (errors.Count > 0)
             {
                 CheckResult e = errors[0];
-                string detail = e.Status == CheckStatus.SourceMissing ? "Arquivo de origem não existe: " + source.Description : e.Error;
+                string detail = e.Status == CheckStatus.SourceMissing ? "Arquivo do patch não existe: " + e.Error : e.Error;
                 Problem(manual, "Falha no " + e.Variant.Display, detail);
             }
             else if (installed.Count == 0)
@@ -565,14 +670,14 @@ namespace DiscordNodeStereo
             lastProblem = title;
         }
 
-        void ShowRestartDialog(List<CheckResult> replaced)
+        void ShowRestartDialog(List<CheckResult> replaced, bool restored)
         {
             if (dialogOpen)
                 return;
             dialogOpen = true;
             try
             {
-                using (RestartDialog d = new RestartDialog(replaced))
+                using (RestartDialog d = new RestartDialog(replaced, restored))
                     d.ShowDialog(Visible ? this : null);
             }
             finally
@@ -602,6 +707,7 @@ namespace DiscordNodeStereo
             if (loadingUi)
                 return;
             settings.Autostart = chkAutostart.Checked;
+            trayAutostart.Checked = settings.Autostart;
             SaveSettings();
             try
             {

@@ -60,6 +60,7 @@ namespace DiscordNodeStereo
         public bool Autostart = true;
         public string SourcePath = "";      // vazio = .node de 512 kbps embutido no .exe (o normal)
         public bool TrayHintShown;
+        public bool Paused;                 // depois do "Desfazer": não reinstala o patch sozinho
         // Última versão vista de cada Discord (Discord, DiscordPTB, DiscordCanary), para avisar "versão nova".
         public readonly Dictionary<string, string> LastVersions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -90,6 +91,7 @@ namespace DiscordNodeStereo
                     case "autostart": s.Autostart = value == "1"; break;
                     case "source": s.SourcePath = value; break;
                     case "tray_hint_shown": s.TrayHintShown = value == "1"; break;
+                    case "paused": s.Paused = value == "1"; break;
                     default:
                         if (key.StartsWith("last_version.") && value.Length > 0)
                             s.LastVersions[key.Substring("last_version.".Length)] = value;
@@ -108,6 +110,7 @@ namespace DiscordNodeStereo
             sb.AppendLine("autostart=" + (Autostart ? "1" : "0"));
             sb.AppendLine("source=" + SourcePath);
             sb.AppendLine("tray_hint_shown=" + (TrayHintShown ? "1" : "0"));
+            sb.AppendLine("paused=" + (Paused ? "1" : "0"));
             foreach (KeyValuePair<string, string> kv in LastVersions)
                 sb.AppendLine("last_version." + kv.Key + "=" + kv.Value);
             string tmp = FilePath + ".tmp";

@@ -258,7 +258,7 @@ namespace DiscordNodeStereo
         }
     }
 
-    public enum CheckStatus { UpToDate, Replaced, DiscordNotFound, ModuleNotFound, SourceMissing, Failed }
+    public enum CheckStatus { UpToDate, Replaced, DiscordNotFound, ModuleNotFound, SourceMissing, Failed, Restored, NothingToRestore }
 
     public sealed class CheckResult
     {
@@ -268,14 +268,33 @@ namespace DiscordNodeStereo
         public bool NewVersion;   // a pasta app-* mudou desde a última verificação
         public string Error;
         public DateTime Time;
+        public List<string> ReplacedFiles = new List<string>();
+    }
+
+    // Um arquivo do patch e o nome que ele tem na pasta final do Discord.
+    public sealed class PatchFile
+    {
+        public string Name;         // "discord_voice.node" ou "index.js"
+        public NodeSource Source;
+
+        public PatchFile(string name, NodeSource source)
+        {
+            Name = name;
+            Source = source;
+        }
     }
 
     public static class Patcher
     {
         public const string BackupSuffix = ".original";
         const string OldMarker = ".old-";
+        const string NewSuffix = ".new";
 
-        public static CheckResult Check(string root, NodeSource source, string lastVersion)
+        // O patch de 512 kbps são dois arquivos que só funcionam juntos:
+        // discord_voice.node + index.js. Os dois vão soltos na pasta ...\discord_voice.
+        public static readonly string[] FileNames = { DiscordLocator.FileName, "index.js" };
+
+        public static CheckResult Check(string root, IList<PatchFile> patch, string lastVersion)
         {
             CheckResult r = new CheckResult { Time = DateTime.Now };
             r.Target = DiscordLocator.Resolve(root);
@@ -290,20 +309,30 @@ namespace DiscordNodeStereo
                 r.Status = CheckStatus.ModuleNotFound;
                 return r;
             }
-            if (!source.Exists)
+            foreach (PatchFile f in patch)
             {
-                r.Status = CheckStatus.SourceMissing;
-                return r;
+                if (!f.Source.Exists)
+                {
+                    r.Status = CheckStatus.SourceMissing;
+                    r.Error = f.Source.Description;
+                    return r;
+                }
             }
             try
             {
                 CleanupOld(r.Target.TargetDir);
-                if (SameContent(source, r.Target.TargetFile))
+                List<PatchFile> changed = new List<PatchFile>();
+                foreach (PatchFile f in patch)
+                    if (!SameContent(f.Source, Path.Combine(r.Target.TargetDir, f.Name)))
+                        changed.Add(f);
+                if (changed.Count == 0)
                 {
                     r.Status = CheckStatus.UpToDate;
                     return r;
                 }
-                Replace(source, r.Target.TargetFile);
+                ReplaceAll(changed, r.Target.TargetDir);
+                foreach (PatchFile f in changed)
+                    r.ReplacedFiles.Add(f.Name);
                 r.Status = CheckStatus.Replaced;
             }
             catch (Exception e)
@@ -315,14 +344,70 @@ namespace DiscordNodeStereo
         }
 
         // Verifica Discord, PTB e Canary de uma vez; os que não estão instalados voltam como DiscordNotFound.
-        public static List<CheckResult> CheckAll(NodeSource source, IDictionary<string, string> lastVersions)
+        public static List<CheckResult> CheckAll(IList<PatchFile> patch, IDictionary<string, string> lastVersions)
         {
             List<CheckResult> results = new List<CheckResult>();
             foreach (DiscordVariant v in DiscordVariant.All)
             {
                 string last;
                 lastVersions.TryGetValue(v.Id, out last);
-                CheckResult r = Check(DiscordLocator.RootFor(v), source, last);
+                CheckResult r = Check(DiscordLocator.RootFor(v), patch, last);
+                r.Variant = v;
+                results.Add(r);
+            }
+            return results;
+        }
+
+        // Desfazer: volta os arquivos do Discord a partir dos backups .original (os dois juntos).
+        public static CheckResult Restore(string root)
+        {
+            CheckResult r = new CheckResult { Time = DateTime.Now };
+            r.Target = DiscordLocator.Resolve(root);
+            if (r.Target.App == null)
+            {
+                r.Status = CheckStatus.DiscordNotFound;
+                return r;
+            }
+            if (r.Target.Module == null || !Directory.Exists(r.Target.TargetDir))
+            {
+                r.Status = CheckStatus.ModuleNotFound;
+                return r;
+            }
+            try
+            {
+                CleanupOld(r.Target.TargetDir);
+                List<PatchFile> back = new List<PatchFile>();
+                foreach (string name in FileNames)
+                {
+                    string dst = Path.Combine(r.Target.TargetDir, name);
+                    FileNodeSource original = new FileNodeSource(dst + BackupSuffix);
+                    if (original.Exists && !SameContent(original, dst))
+                        back.Add(new PatchFile(name, original));
+                }
+                if (back.Count == 0)
+                {
+                    r.Status = CheckStatus.NothingToRestore;
+                    return r;
+                }
+                ReplaceAll(back, r.Target.TargetDir);
+                foreach (PatchFile f in back)
+                    r.ReplacedFiles.Add(f.Name);
+                r.Status = CheckStatus.Restored;
+            }
+            catch (Exception e)
+            {
+                r.Status = CheckStatus.Failed;
+                r.Error = e.Message;
+            }
+            return r;
+        }
+
+        public static List<CheckResult> RestoreAll()
+        {
+            List<CheckResult> results = new List<CheckResult>();
+            foreach (DiscordVariant v in DiscordVariant.All)
+            {
+                CheckResult r = Restore(DiscordLocator.RootFor(v));
                 r.Variant = v;
                 results.Add(r);
             }
@@ -337,36 +422,66 @@ namespace DiscordNodeStereo
             return Hashing.Equal(Hashing.Sha256File(file), source.Hash);
         }
 
+        // Troca todos os arquivos juntos: meio patch (só o .node ou só o index.js) quebra o Discord.
+        // 1) guarda o original (.original) e escreve cada arquivo novo como .new;
+        // 2) só então troca; se alguma troca falhar, desfaz as que já foram feitas.
         // Com o Discord aberto o .node fica travado para escrita, mas o Windows deixa renomear:
         // o atual vira .old-*, o novo entra no lugar e o Discord carrega ele ao reiniciar.
-        public static void Replace(NodeSource source, string dst)
+        public static void ReplaceAll(IList<PatchFile> files, string dir)
         {
-            string backup = dst + BackupSuffix;
-            if (File.Exists(dst) && !File.Exists(backup))
-                File.Copy(dst, backup);
-
-            string tmp = dst + ".new";
-            using (Stream input = source.Open())
-            using (FileStream output = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-                input.CopyTo(output);
-
-            if (!File.Exists(dst))
+            foreach (PatchFile f in files)
             {
-                File.Move(tmp, dst);
-                return;
+                string dst = Path.Combine(dir, f.Name);
+                string backup = dst + BackupSuffix;
+                if (File.Exists(dst) && !File.Exists(backup))
+                    File.Copy(dst, backup);
+                using (Stream input = f.Source.Open())
+                using (FileStream output = new FileStream(dst + NewSuffix, FileMode.Create, FileAccess.Write, FileShare.None))
+                    input.CopyTo(output);
             }
-            string old = dst + OldMarker + DateTime.Now.Ticks;
-            File.Move(dst, old);
+
+            List<KeyValuePair<string, string>> swapped = new List<KeyValuePair<string, string>>();  // (destino, .old ou null)
             try
             {
-                File.Move(tmp, dst);
+                foreach (PatchFile f in files)
+                {
+                    string dst = Path.Combine(dir, f.Name);
+                    string old = null;
+                    if (File.Exists(dst))
+                    {
+                        old = dst + OldMarker + DateTime.Now.Ticks;
+                        File.Move(dst, old);
+                    }
+                    try
+                    {
+                        File.Move(dst + NewSuffix, dst);
+                    }
+                    catch
+                    {
+                        if (old != null)
+                            File.Move(old, dst);
+                        throw;
+                    }
+                    swapped.Add(new KeyValuePair<string, string>(dst, old));
+                }
             }
             catch
             {
-                File.Move(old, dst);
+                for (int i = swapped.Count - 1; i >= 0; i--)
+                {
+                    string dst = swapped[i].Key;
+                    string old = swapped[i].Value;
+                    TryDelete(dst);
+                    if (old != null && !File.Exists(dst))
+                        File.Move(old, dst);
+                }
+                foreach (PatchFile f in files)
+                    TryDelete(Path.Combine(dir, f.Name) + NewSuffix);
                 throw;
             }
-            TryDelete(old);
+            foreach (KeyValuePair<string, string> s in swapped)
+                if (s.Value != null)
+                    TryDelete(s.Value);
         }
 
         // Apaga sobras de trocas anteriores (só consegue quando o Discord já soltou o arquivo).
@@ -375,7 +490,7 @@ namespace DiscordNodeStereo
             foreach (string f in Directory.GetFiles(dir))
             {
                 string name = Path.GetFileName(f);
-                if (name.Contains(OldMarker) || name.EndsWith(".node.new", StringComparison.OrdinalIgnoreCase))
+                if (name.Contains(OldMarker) || name.EndsWith(NewSuffix, StringComparison.OrdinalIgnoreCase))
                     TryDelete(f);
             }
         }

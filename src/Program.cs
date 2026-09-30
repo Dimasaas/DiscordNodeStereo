@@ -1,5 +1,6 @@
 // Ponto de entrada: instância única, fonte do .node embutido e início na bandeja (--tray).
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -9,8 +10,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Atualizador de módulos para Discord")]
 [assembly: AssemblyProduct("DiscordNodeStereo")]
 [assembly: AssemblyCopyright("DiscordNodeStereo")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace DiscordNodeStereo
 {
@@ -48,7 +49,7 @@ namespace DiscordNodeStereo
                 };
 
                 long embeddedLength;
-                NodeSource embedded = CreateEmbeddedSource(out embeddedLength);
+                List<PatchFile> embedded = CreateEmbeddedPatch(out embeddedLength);
                 using (EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName))
                 {
                     MainForm form = new MainForm(startHidden, embedded, embeddedLength);
@@ -60,21 +61,29 @@ namespace DiscordNodeStereo
             }
         }
 
-        // O build embute o .node compactado (gzip) + um .info com tamanho e SHA-256,
-        // assim a comparação de hora em hora não precisa descompactar nada.
-        static NodeSource CreateEmbeddedSource(out long length)
+        // O build embute os dois arquivos do patch (discord_voice.node + index.js) compactados em gzip,
+        // cada um com um .info de tamanho e SHA-256: a comparação de hora em hora não descompacta nada.
+        static List<PatchFile> CreateEmbeddedPatch(out long totalLength)
         {
             Assembly asm = Assembly.GetExecutingAssembly();
-            GzipNodeSource src = new GzipNodeSource(
-                delegate { return asm.GetManifestResourceStream("discord_voice.node.gz"); }, "embutido");
-            using (Stream s = asm.GetManifestResourceStream("discord_voice.node.info"))
-            using (StreamReader r = new StreamReader(s))
+            List<PatchFile> files = new List<PatchFile>();
+            totalLength = 0;
+            foreach (string name in Patcher.FileNames)
             {
-                string[] info = r.ReadToEnd().Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                length = long.Parse(info[0].Trim());
-                src.SetKnownInfo(length, Hashing.FromHex(info[1]));
+                string resource = name;
+                GzipNodeSource src = new GzipNodeSource(
+                    delegate { return asm.GetManifestResourceStream(resource + ".gz"); }, name + " (embutido)");
+                using (Stream s = asm.GetManifestResourceStream(name + ".info"))
+                using (StreamReader r = new StreamReader(s))
+                {
+                    string[] info = r.ReadToEnd().Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    long length = long.Parse(info[0].Trim());
+                    src.SetKnownInfo(length, Hashing.FromHex(info[1]));
+                    totalLength += length;
+                }
+                files.Add(new PatchFile(name, src));
             }
-            return src;
+            return files;
         }
     }
 }
